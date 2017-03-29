@@ -68,8 +68,11 @@
     }
 
     function fetch_data_for_period(start, end, array_idx, api_key){
+        // сделать запрос на корневой урл.
+        // Если успешно - положить результат в глобальный массив global_hourly_data_array.
+        // Если нет - рекурсивно повторить запрос
         $.getJSON({
-            url: 'http://track.weadmire.io/',
+            url: '/',
             data: {
                 page: 'Campaigns',
                 order: 6,
