@@ -1,0 +1,265 @@
+<html>
+<head>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.17.1/moment.min.js'></script>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+    <meta name="viewport" content="user-scalable=no, initial-scale=1.0, maximum-scale=1.0, width=device-width">
+</head>
+<body>
+
+<form>
+
+    <div class="input-group">
+        <span class="input-group-addon">API Key</span>
+        <input  id="api_key" name="api_key" type="text" class="form-control">
+    </div>
+    <div class="input-group">
+        <span class="input-group-addon">Campaign ID</span>
+        <input id="campaign_id" name="campaign_id" type="text" class="form-control">
+    </div>
+</form>
+
+
+
+<div align="center">
+
+    <a href="#" class="btn btn-default" id="prev_day_btn"><<</a>
+    <span class="btn btn-default" id="today_date"></span>
+    <a href="#" class="btn btn-default" id="next_day_btn">>></a>
+</div>
+<div id="chart_div" style="width: 100%; height: 500px;"></div>
+<!--<div id="js_output"></div>-->
+
+<script>
+
+    // Для корректной обработки асинхронных запросов
+    if (typeof jQuery.when.all === 'undefined') {
+        jQuery.when.all = function (deferreds) {
+            return $.Deferred(function (def) {
+                $.when.apply(jQuery, deferreds).then(
+                        function () {
+                            def.resolveWith(this, [Array.prototype.slice.call(arguments)]);
+                        },
+                        function () {
+                            def.rejectWith(this, [Array.prototype.slice.call(arguments)]);
+                        });
+            });
+        }
+    }
+
+    function getURLParameter(name) {
+        var param = decodeURI(
+                (RegExp(name + '=' + '(.+?)(&|$)').exec(location.search)||[,null])[1] || ''
+        );
+        return param.replace(/\+/gim," ")
+    }
+
+    // Получить сумму значений из списка кампаний по определенному параметру
+    function total(campaign_list, param_name){
+        var sum = 0;
+        for(var j=0; j<campaign_list.length; j++){
+
+            var val = parseFloat(campaign_list[j][param_name]);
+            var rounded = Math.round(val*100)/100;
+            sum += rounded;
+        }
+        return sum;
+    }
+
+    // Подготовить объект со статистикой, сделав из него таблицу, подходящую для Google Charts
+    function prepare_datatable(all_result_stats){
+        var datatable = [
+            ['Hour', 'Clicks', 'Profit']
+        ];
+        for (var i=0; i<24; i++){
+            datatable.push([
+                i, all_result_stats.clicks[i], all_result_stats.profit[i]
+            ]);
+        }
+
+        return datatable;
+    }
+
+    // Отобразить график для определенного дня
+    function display_graph_for_day(offset_from_today){
+        $('#chart_div').html('Loading...');
+
+        var api_key = $('#api_key').val();
+        if(!api_key){
+            alert('Enter API key.');
+            return;
+        }
+
+        // Получаем сегодняшнюю дату (начало сегодняшнего дня, 00 часов 00 минут)
+        var today_start = moment({
+            year: moment().year(),
+            month: moment().month(),
+            date: moment().date()
+        });
+
+        // Сдвигаем вперед или назад на определенное кол-во дней
+        today_start.add(offset_from_today, 'days');
+
+        // Отображаем получившуюся дату
+        $('#today_date').html(today_start.format('YYYY-MM-DD'));
+
+
+        var campaign_id = $('#campaign_id').val();
+
+
+
+        // Собираем 24 отложенных ajax-запроса
+        var deferreds = [];
+        for(var i=0;i<24;i++){
+
+            var start = today_start.clone().add(i, 'hours');
+            var end = today_start.clone().add(i+1, 'hours');
+            var get_params;
+
+            if(campaign_id){
+                get_params = {
+                    api_key: api_key,
+                    num_page: 1,
+                    val_page: 9999999,
+                    page: 'Stats',
+                    camp_id: campaign_id,
+                    date:10,
+                    date_s: start.format('YYYY-MM-DD | HH:00'),
+                    date_e: end.format('YYYY-MM-DD | HH:00')
+                }
+            } else {
+                get_params = {
+                    api_key: api_key,
+                    page: 'Campaigns',
+                    date_s: start.format('YYYY-MM-DD | HH:00'),
+                    date_e: end.format('YYYY-MM-DD | HH:00'),
+                    order: 6,
+                    type_stat: 0,
+                    type: 'DESC',
+                    status: 'on',
+                    group: 'all',
+                    traffic_source: 'all',
+                    date: 10
+                }
+            }
+
+            deferreds[i] = $.getJSON({
+                url: '/',
+                data: get_params
+            });
+        }
+
+        // Когда все отложенные запросы завершатся - обработать получившиеся результаты
+        $.when.all(deferreds).then(function(objects) {
+
+            var all_result_stats = {
+                clicks: [],
+                profit: []
+            };
+
+            // суммируем клики и профиты
+            for(var i=0; i<24; i++){
+                var campaign_list = objects[i][0];
+                all_result_stats.clicks[i] = total(campaign_list, 'clicks');
+                all_result_stats.profit[i] = total(campaign_list, 'profit');
+
+            }
+            // Делаем таблицу для Google Charts
+            var datatable = prepare_datatable(all_result_stats);
+
+            google.charts.load('current', {'packages':['corechart']});
+            google.charts.setOnLoadCallback(drawChart);
+
+            // Рисуем Google Chart
+            function drawChart() {
+                var data = google.visualization.arrayToDataTable(datatable);
+
+                var options = {
+                    legend: { position: 'bottom' },
+                    series: {
+                        // visits
+                        0: {
+                            color: '#ffe3bf',
+                            targetAxisIndex: 0,
+                            type: 'area'
+                        },
+                        // profit
+                        1: {
+                            color: 'green',
+                            targetAxisIndex: 1
+                        }
+                    },
+
+                    vAxes: {
+                        0: {
+                            baselineColor: 'transparent',
+                            textStyle: {
+                                color: '#ff9f47'
+                            }
+                        },
+                        1: {
+                            baselineColor: 'grey',
+                            textStyle: {
+                                color: 'green'
+                            }
+                        },
+                        2: {},
+                        3: {baselineColor: 'transparent'}
+                    },
+                    vAxis: {
+//                        gridlines: { count: 0},
+                        textPosition: 'in'
+                    },
+
+                    seriesType: 'line',
+                    hAxis: {
+                        ticks: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],
+                        gridlines: { color: 'transparent' },
+                        baselineColor: 'transparent'
+                    },
+
+                    chartArea: {width: '100%', height: '80%'}
+                };
+
+                var chart = new google.visualization.LineChart(document.getElementById('chart_div'));
+                chart.draw(data, options);
+            }
+
+        });
+    }
+
+    // Получаем из GET-параметров апи-ключ, добавляем в форму.
+    var api_key_from_get = getURLParameter('api_key');
+    if(api_key_from_get){
+        $('#api_key').val(api_key_from_get);
+    }
+
+    var current_day_offset = 0;
+
+    // Клик по кнопке "предыдущий день" сдвигает день на 1 назад и перерисовывает график
+    $('#prev_day_btn').click(function(e){
+        e.preventDefault();
+        current_day_offset--;
+        display_graph_for_day(current_day_offset);
+    });
+
+    // Клик по кнопке "предыдущий день" сдвигает день на 1 вперед и перерисовывает график
+    $('#next_day_btn').click(function(e){
+        e.preventDefault();
+        current_day_offset++;
+        display_graph_for_day(current_day_offset);
+    });
+
+    // По дефолту рисуем сегодняшний график
+    display_graph_for_day(0);
+
+
+</script>
+<br/>
+<br/>
+<div align="center">(C) 2017 kurtgn</div>
+</body>
+</html>
