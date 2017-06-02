@@ -101,7 +101,7 @@
             success: function(data){
                 var select = $("#select_campaign");
                 data.forEach(function(item){
-                    select.append('<option value="'+item.id+'">'+item.name+'</option>');
+                    select.append('<option value="'+item.id+'">'+item.id+'. '+item.name+'</option>');
                 });
             },
             error: function(){
